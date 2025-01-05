@@ -1,18 +1,12 @@
 import os
 from datetime import datetime, timedelta
-from git import Repo, GitCommandError
+from git import Repo
 from collections import defaultdict
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 def find_git_repositories(root_dir):
-    """
-    Finds all Git repositories in the given directory.
-
-    Args:
-        root_dir (str): The path to the root directory to search.
-
-    Returns:
-        list: A list of paths to directories containing Git repositories.
-    """
+    """Finds all Git repositories in the given directory."""
     git_repos = []
 
     for dirpath, dirnames, filenames in os.walk(root_dir):
@@ -21,40 +15,51 @@ def find_git_repositories(root_dir):
 
     return git_repos
 
-def get_repo_stats(repo_path, days):
-    """
-    Gathers statistics for a given Git repository.
-
-    Args:
-        repo_path (str): The path to the Git repository.
-        days (int): The number of days to look back.
-
-    Returns:
-        dict: Statistics including total commits, contributors, and commit counts per contributor.
-    """
-    stats = {
-        "total_commits": 0,
-        "contributors": defaultdict(int),
-    }
+def get_commit_dates(repo_path, days):
+    """Gathers commit dates for the last `days` from the given Git repository."""
+    dates = []
 
     try:
         repo = Repo(repo_path)
         if repo.bare:
-            print(f"Repository at {repo_path} is bare.")
-            return stats
+            return dates
 
         since_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
         commits = list(repo.iter_commits(since=since_date))
 
         for commit in commits:
-            stats["total_commits"] += 1
-            stats["contributors"][commit.author.email] += 1
+            dates.append(datetime.fromtimestamp(commit.committed_date).date())
 
-        return stats
-
-    except GitCommandError as e:
+    except Exception as e:
         print(f"Error processing repository at {repo_path}: {e}")
-        return stats
+
+    return dates
+
+def prepare_heatmap_data(dates, days):
+    """Prepares data for the heatmap."""
+    start_date = datetime.now().date() - timedelta(days=days)
+    date_range = [start_date + timedelta(days=i) for i in range(days + 1)]
+    data = defaultdict(int)
+
+    for date in dates:
+        data[date] += 1
+
+    heatmap_data = [data[date] for date in date_range]
+    return date_range, heatmap_data
+
+def render_contribution_graph(date_range, heatmap_data):
+    """Renders the contribution graph."""
+    fig, ax = plt.subplots(figsize=(15, 2))
+    cmap = plt.cm.get_cmap("Greens", max(heatmap_data) + 1)
+
+    bars = ax.bar(date_range, heatmap_data, color=[cmap(val) for val in heatmap_data])
+    ax.set_title("Contribution Graph")
+    ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
 
 def main():
     root_directory = input("Enter the root directory to search for Git repositories: ").strip()
@@ -73,20 +78,16 @@ def main():
         return
 
     git_repositories = find_git_repositories(root_directory)
+    all_dates = []
 
-    if git_repositories:
-        print("\nRepository Statistics:\n")
-        for repo in git_repositories:
-            stats = get_repo_stats(repo, days)
-            print(f"Repository: {repo}")
-            print(f"  Total Commits: {stats['total_commits']}")
-            print("  Contributors:")
-            for contributor, count in stats["contributors"].items():
-                print(f"    {contributor}: {count} commits")
-            print()
+    for repo in git_repositories:
+        all_dates.extend(get_commit_dates(repo, days))
 
+    if all_dates:
+        date_range, heatmap_data = prepare_heatmap_data(all_dates, days)
+        render_contribution_graph(date_range, heatmap_data)
     else:
-        print("No Git repositories found in the specified directory.")
+        print("No contributions found in the specified time period.")
 
 if __name__ == "__main__":
     main()
